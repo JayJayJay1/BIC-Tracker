@@ -1,0 +1,32 @@
+cfg *Config{
+	Fix:   bool | test.fix,
+	// Trace: debugtracer.DebugTracer | &debugtracer.TestTracer{T: t},
+	// DefaultCompiler string
+	// BinDir          string
+	// Ccache          string
+	// Timeout         time.Duration
+	// Syzkaller       SyzkallerConfig
+	// Repro           ReproConfig
+	// CompilerType    string
+	Manager: *mgrconfig.Config | &mgrconfig.Config{
+		Derived: mgrconfig.Derived{
+			TargetOS:     targets.TestOS,
+			TargetVMArch: targets.TestArch64,
+		},
+		Type:      "qemu",
+		KernelSrc: baseDir,
+	},
+	Kernel: KernelConfig | KernelConfig{
+		Repo:           baseDir,
+		Branch:         "master",
+		Commit:         sc.Hash,
+		CommitTitle:    sc.Title,
+		Config:         []byte("original config"),
+		BaselineConfig: []byte(test.baselineConfig),
+	},
+}
+
+
+repo vcs.Repo
+
+inst instance.Env

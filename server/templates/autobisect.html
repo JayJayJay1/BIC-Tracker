@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Auto-bisect Status</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.1/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-iYQeCzEYFbKjA/T2uDLTpkwGzCiq6soy8tYaI1GyVh/UjpbCx/TYkiZhlZB6+fzT" crossorigin="anonymous">
+    <style>
+        body {
+            padding: 60px;
+        }
+
+        table {
+            table-layout: fixed;
+        }
+        td.overflow {
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        </style>
+</head>
+
+<body>
+    <div>
+        <h1>Auto-bisect Status</h1>
+        <p>
+            {{ stats }}
+        </p>
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th style="width: 10%;">Reproducer</th>
+                    <th style="width: 5%;">State</th>
+                    <th style="width: 12%;">Status reason</th>
+                    <th style="width: 10%;">Bisected Commit</th>
+                    <th style="width: 10%;">syzkaller Bisected Commit</th>
+                    <th style="width: 10%;">SZZ Results</th>
+                    <th style="width: 10%;">Fixed Commits</th>
+                    <th style="width: 10%;">Syzkaller Fix-Bisection Commit</th>
+                    <th style="width: 10%;">Finished at</th>
+                    <th style="width: 5%;">Similarity</th>
+                    <th style="width: 5%;">Steps done</th>
+                    <th style="width: 5%;">Steps done syzkaller</th>
+                </tr>
+            </thead>
+            {% for reproducer in reproducers %}
+            {% if "syz_log_info" in reproducer and "commit" in reproducer["syz_log_info"] and "szz_results" in reproducer and reproducer["szz_results"] is mapping %}
+
+            <tr data-bs-toggle="collapse" data-bs-target="#accordion-{{reproducer.id}}" class="clickable">
+                <td class="overflow">
+                    <a href="{{ reproducer.link }}">{{ reproducer.title }}</a>
+                </td>
+                <td>
+                    {% if reproducer.retest_state == 'not_retested' %}
+                    <span style="color: orange">Not started</span>
+                    {% elif reproducer.retest_state == 'running' %}
+                    <span style="color: green">Running</span>
+                    {% elif reproducer.retest_state == 'failed' %}
+                    <span style="color: red">Failed</span>
+                    {% elif reproducer.retest_state == 'done' %}
+                    <span style="color: blue">Done</span>
+                    {% elif reproducer.retest_state == 'skipped' %}
+                    <span style="color: turquoise">Skipped</span>
+                    {% else %}
+                    <span style="color: black">n/a</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span>
+                    {% if "reason" in reproducer %}
+                    {{ reproducer.reason }}
+                    {% else %}
+                    n/a
+                    {% endif %}
+                    </span>
+                </td>
+                <td class="overflow">
+                    {% if reproducer.retest_state == 'done' %}
+                    {% if reproducer["log_info"]["commit"] == reproducer["syz_log_info"]["commit"] %}
+                    <span style="color: green">
+                    {% else %}
+                    <span style="color: red">
+                    {% endif %}
+                        {{ reproducer["log_info"]["commit"] }}
+                    </span>
+                    {% else %}
+                    <span>n/a</span>
+                    {% endif %}
+                </td>
+                <td class="overflow">
+                    {% if "syz_log_info" in reproducer %}
+                    <span>{{ reproducer["syz_log_info"]["commit"] }}</span>
+                    {% endif %}
+                </td>
+                <td class="overflow">
+                    {% if "szz_results" in reproducer and reproducer["szz_results"] is mapping %}
+                        {% for algorithm, results in reproducer["szz_results"].items() %}
+                            <h5>{{ algorithm }}:</h5>
+                            {% if results["result"] == "failed" %}
+                                <span style="color: red">(Failed)</span>
+                            {% endif %}
+                            {% if results["inducing_commit_hash"] == "no_output" %}
+                            <span style="color: red">
+                                No output
+                            </span>
+                            {% elif results["inducing_commit_hash"] == "no_inducing_commit" %}
+                            <span style="color: red">
+                                None
+                            </span>
+                            {% else %}
+                            {% for result in results["inducing_commit_hash"] %}
+                                {% if result == reproducer["syz_log_info"]["commit"] %}
+                                <span style="color: green">
+                                {% else %}
+                                <span style="color: red">
+                                {% endif %}
+                                    <span>{{ result }}</span><br>
+                                </span>
+                            {% endfor %}
+                        {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                </td>
+                <td class="overflow">
+                    {% if "fix-commits" in reproducer %}
+                        {% for commit in reproducer["fix-commits"] %}
+                            {% if commit is none %}
+                                <span style="color: red">unreachable commit</span><br>
+                            {% else %}
+                                <span >{{ commit }}</span><br>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                </td>
+                <td class="overflow">
+                    {% if "fix-bisection-commit" in reproducer %}
+                        {{ reproducer["fix-bisection-commit"] }}
+                    {% endif %}
+                </td>
+                <td>
+                    <span>{{ reproducer["retest_date"] }}</span>
+                </td>
+                <td>
+                    <!-- # 100 everything equal
+                    # 90 everything equal but not same crash
+                    # 60 commits equal
+                    # 20 only syzkaller commit equal
+                    # 0 nothing equal
+                    # not reproducible -->
+                    {% if reproducer["similarity"] == 100 %}
+                    <span style="color: green">same crash</span>
+                    {% elif reproducer["similarity"] == 90 %}
+                    <span style="color: lightgreen">different crash</span>
+                    {% elif reproducer["similarity"] == 60 %}
+                    <span style="color: lightgreen">different repo</span>
+                    {% elif reproducer["similarity"] == 20 %}
+                    <span>different kernel commit</span>
+                    {% elif reproducer["similarity"] == 0 %}
+                    <span style="color: lightcoral">different commits</span>
+                    {% elif reproducer["similarity"] == -1 %}
+                    <span style="color: red">not reproducible</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if "steps_done" in reproducer["log_info"] %}
+                    <span>{{ reproducer["log_info"]["steps_done"] }}</span>
+                    {% else %}
+                    <span>n/a</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if "syz_log_info" in reproducer %}
+                    <span>{{ reproducer["syz_log_info"]["steps_done"] }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td colspan="10">
+                    <div id="accordion-{{reproducer.id}}" class="collapse">
+                        Syz-Compiler:<code>{{ reproducer["syz_compiler_text"] }}</code><br>
+                        Auto-bisect-Compiler:
+                        {% if "compiler_text" in reproducer %}
+                        <code>{{ reproducer["compiler_text"] }}</code><br>
+                        {% else %}
+                        <code>n/a</code><br>
+                        {% endif %}
+                        Log:<br>
+                        <pre>{{ reproducer.log }}</pre>
+                    </div>                    
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </table>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.1/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-u1OknCvxWvY5kfmNBILK2hRnQC3Pr17a+RTT6rIHI7NnikvbZlHgTPOOmMi466C8"
+        crossorigin="anonymous"></script>
+</body>
+
+</html>
