@@ -1,0 +1,58 @@
+diff --git a/kernel/panic.c b/kernel/panic.c
+index cefd7d82366f..a356d34649a9 100644
+--- a/kernel/panic.c
++++ b/kernel/panic.c
+@@ -32,6 +32,9 @@
+ #include <linux/bug.h>
+ #include <linux/ratelimit.h>
+ #include <linux/debugfs.h>
++#include <linux/kernel.h>
++#include <linux/kcov.h>
++#include <linux/slab.h>
+ #include <asm/sections.h>
+ 
+ #define PANIC_TIMER_STEP 100
+@@ -146,11 +149,42 @@ void nmi_panic(struct pt_regs *regs, const char *msg)
+ }
+ EXPORT_SYMBOL(nmi_panic);
+ 
++static void print_kcov_pcs(void)
++{
++	struct task_struct *t;
++	unsigned long *area, pos;
++	int i, k, messages;
++	unsigned int mode, size;
++	char *msg, *counter;
++	t = current;
++	mode = READ_ONCE(t->kcov_mode);
++	WRITE_ONCE(t->kcov_mode, KCOV_MODE_DISABLED);
++	area = t->kcov_area;
++	size = t->kcov_size;
++	if (area != NULL) {
++		pos = READ_ONCE(area[0]);
++		if (mode == KCOV_MODE_TRACE_PC && READ_ONCE(t->kcov_size) >= 262144) {
++			msg = kmalloc(16 * 60 * sizeof(char) + 1, GFP_ATOMIC);
++			messages = 0;
++			for (k = 1; k <= pos;) {
++				counter = msg;
++				for (i = 0; i < 60 && k <= pos; i++, k++) {
++					counter += sprintf(counter, "%lx", READ_ONCE(area[k]));
++				}
++				counter[0] = '\0';
++				messages++;
++				printk(KERN_INFO "%d/%lu]%s\n", messages, (pos-1)/60 + 1, msg);
++			}
++			kfree(msg);
++		}
++	}
++}
++
+ static void panic_print_sys_info(void)
+ {
+ 	if (panic_print & PANIC_PRINT_ALL_PRINTK_MSG)
+ 		console_flush_on_panic(CONSOLE_REPLAY_ALL);
+-
++	print_kcov_pcs();
+ 	if (panic_print & PANIC_PRINT_TASK_INFO)
+ 		show_state();
+ 
